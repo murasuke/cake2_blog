@@ -17,14 +17,37 @@
       "program": "${file}",
       "cwd": "${fileDirname}",
       "port": 0,
+      "stopOnEntry": true,
       "runtimeArgs": [
-        "-dxdebug.start_with_request=yes"
+        // "-dxdebug.start_with_request=yes"
       ],
+      //"log": true,
       "env": {
         "XDEBUG_MODE": "debug,develop",
         "XDEBUG_CONFIG": "client_port=${port}"
       }
     },
+    {
+      "name": "Launch",
+      "type": "php",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${fileDirname}",
+      "port": 9003,
+      "runtimeArgs": [
+        "-dxdebug.start_with_request=yes"
+      ],
+      // "pathMappings": {
+      //     "/srv/www/mywebsiteroot": "${workspaceRoot}"
+      // },
+      "stopOnEntry": true,
+      "log": true,
+      "env": {
+          "XDEBUG_MODE": "debug",
+          "XDEBUG_TRIGGER": "VSCODE",
+          "XDEBUG_CONFIG": "client_port=${port}"
+      }
+  },
     {
       "name": "Launch Built-in web server",
       "type": "php",

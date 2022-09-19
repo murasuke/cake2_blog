@@ -2,93 +2,70 @@
 // app/Controller/UsersController.php
 App::uses('AppController', 'Controller');
 
-class UsersController extends AppController {
+class UsersController extends AppController
+{
+    //どのヘルパーとコンポーネントを使うか
+    public $helpers = array('Html', 'Form', 'Flash');
+    public $components = array('Flash', 'Auth');
 
-    public function beforeFilter() {
+    public function beforeFilter()
+    {
+        //未ログイン者が見れるページ(それ以外はリダイレクト先に飛ぶ)
         parent::beforeFilter();
-        // Allow users to register and logout.
-        $this->Auth->allow('add', 'logout');
+        $this->Auth->allow('add', 'login', 'logout');
     }
 
-    public function index() {
-        $this->User->recursive = 0;
-        $this->set('users', $this->paginate());
-    }
-
-    public function view($id = null) {
-        $this->User->id = $id;
-        if (!$this->User->exists()) {
-            throw new NotFoundException(__('Invalid user'));
-        }
-        $this->set('user', $this->User->findById($id));
-    }
-
-    public function add() {
+    public function add()
+    {
+        //postで送られてきた情報をユーザーテーブルに保存
         if ($this->request->is('post')) {
             $this->User->create();
             if ($this->User->save($this->request->data)) {
-                $this->Flash->success(__('The user has been saved'));
-                return $this->redirect(array('action' => 'index'));
+                $this->Flash->success(__('会員登録が完了しました'));
+                return $this->redirect(
+                    array(
+                        'controller' => 'posts', 'action' => 'index'
+                    )
+                );
             }
-            $this->Flash->error(
-                __('The user could not be saved. Please, try again.')
-            );
+            $this->Flash->error(__('登録に失敗しました。再度お試しください'));
         }
     }
-
-    public function edit($id = null) {
-        $this->User->id = $id;
-        if (!$this->User->exists()) {
-            throw new NotFoundException(__('Invalid user'));
-        }
-        if ($this->request->is('post') || $this->request->is('put')) {
-            if ($this->User->save($this->request->data)) {
-                $this->Flash->success(__('The user has been saved'));
-                return $this->redirect(array('action' => 'index'));
-            }
-            $this->Flash->error(
-                __('The user could not be saved. Please, try again.')
-            );
-        } else {
-            $this->request->data = $this->User->findById($id);
-            unset($this->request->data['User']['password']);
-        }
-    }
-
-    public function delete($id = null) {
-        // Prior to 2.5 use
-        // $this->request->onlyAllow('post');
-
-        $this->request->allowMethod('post');
-
-        $this->User->id = $id;
-        if (!$this->User->exists()) {
-            throw new NotFoundException(__('Invalid user'));
-        }
-        if ($this->User->delete()) {
-            $this->Flash->success(__('User deleted'));
-            return $this->redirect(array('action' => 'index'));
-        }
-        $this->Flash->error(__('User was not deleted'));
-        return $this->redirect(array('action' => 'index'));
-    }
-
-
-
 
     public function login()
     {
+        //送られてきた情報と比べログイン処置
+        //ここでハッシュ化されたパスワードと比べる
         if ($this->request->is('post')) {
             if ($this->Auth->login()) {
-                $this->redirect($this->Auth->redirect());
-            } else {
-                $this->Flash->error(__('Invalid username or password, try again'));
+                $this->Flash->success(__('ログインに成功しました'));
+                return $this->redirect(
+                    $this->Auth->redirect(array(
+                        'controller' => 'posts', 'action' => 'index'
+                    ))
+                );
             }
+            $this->Flash->error(__('メールアドレスもしくはパスワードが違います'));
         }
     }
 
     public function logout()
     {
-        $this->redirect($this->Auth->logout());
+        //ログアウト処理　今回は投稿一覧に飛ぶようにしています。
+        if ($this->Auth->login()) {
+            $this->Flash->success(__('ログアウトしました'));
+            $this->redirect(
+                $this->Auth->logout(array(
+                    'controller' => 'posts',
+                    'action' => 'index'
+                ))
+            );
+        }
+        $this->redirect(
+            $this->Auth->redirect(array(
+                'controller' => 'posts',
+                'action' => 'index'
+            ))
+        );
     }
 }

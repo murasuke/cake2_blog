@@ -25,20 +25,32 @@ App::uses('Controller', 'Controller');
 class AppController extends Controller
 {
     public $components = array(
+        'DebugKit.Toolbar' => array('panels' => array('history' => false)),
         'Flash',
+        'Session',
+        //ログイン後、ログアウト後にどのような処理を行うか
         'Auth' => array(
             'loginRedirect' => array(
-                'controller' => 'posts',
-                'action' => 'index'
+                //UsersControllerに記述したログイン処理
+                'controller' => 'users',
+                'action' => 'login'
             ),
+            //UsersControllerに記述したログアウト処理
             'logoutRedirect' => array(
-                'controller' => 'pages',
-                'action' => 'display',
+                'controller' => 'posts',
+                'action' => 'index',
                 'home'
             ),
+            //パスワードのハッシュ化
             'authenticate' => array(
                 'Form' => array(
-                    'passwordHasher' => 'Blowfish'
+                    'userModel' => 'User',
+                    'passwordHasher' => 'Blowfish',
+                    'hashType' => 'md5',
+                    'fields' => array(
+                        'username' => 'email',
+                        'password' => 'password'
+                    )
                 )
             ),
             'authorize' => array('Controller')
@@ -55,8 +67,29 @@ class AppController extends Controller
         // Default deny
         return false;
     }
-    public function beforeFilter()
-    {
+    public $helpers = array('Html', 'Form', 'Session');
+    public function beforeFilter() {
         $this->Auth->allow('index', 'view');
+        //ログイン者の名前表示する
+        $this->set('auth', $this->Auth->user());
+        //メールアドレスでログインするためカラム切り替え
+        $this->Auth->authenticate = array(
+            'Form' => array(
+                'fields' => array('username' => 'email', 'password' => 'password')
+            )
+        );
     }
+
+    public $settings = array(
+        'fields' => array(
+            'username' => 'username',
+            'password' => 'password'
+        ),
+        'userModel' => 'User',
+        'userFields' => null,
+        'scope' => array(),
+        'recursive' => 0,
+        'contain' => null,
+        'passwordHasher' => 'Blowfish'
+    );
 }
