@@ -1,6 +1,10 @@
 <?php
-require_once __DIR__ . '/vendors/autoload.php';
-//require 'vendors/autoload.php'; // この行を追加
+if (file_exists(__DIR__ . '/vendors/autoload.php')) {
+    require_once __DIR__ . '/vendors/autoload.php';
+}else{
+    require_once __DIR__ . '/vendor/autoload.php';
+}
+
 use PhpParser\{
     ParserFactory,
     Parser,
@@ -23,92 +27,168 @@ $configs = [
         'target' => 'app/Controller',
         //'target' => 'app/View/Users',
         'exclude' => ['.git', 'vendors', 'plugins'],
-        'visitors' => [
-            'visitor\ListMethod',
-        ]
+        // 'visitors' => [
+        //     'visitor\ListMethod',
+        // ]
     ],
+    // [
+    //     'target' => 'app/View/Users',
+    //     'exclude' => ['.git', 'vendors', 'plugins'],
+    // ],
 ];
 
-class FileTraverser //extends NodeVisitorAbstract
+    // Controller、Viewを全て解析して配列にセットする
+    // Controllerに対して下記を行う
+    // ①action⇒View,Elementの一覧を取得する
+    //   $this->methods[]から、Viewを取得
+    //   ViewからElementを取得（再帰)
+    //     ⇒ actionで利用しているView、Elementを抜き出す
+    // ②View、Elementから逆順で検索する
+    //  ⇒逆順で走査することも可能だが、①の結果からまとめることが可能(なはず)
+class AnalyzedClass {
+    public const CAKE_TYPE_CONTROLLER = 0;
+    public const CAKE_TYPE_VIEW = 1;
+    public const CAKE_TYPE_ELEMENT = 2;
+    public const CAKE_TYPE_MODEL = 3;
+
+
+    public $filePath = "";
+    public $className = "";
+    public $fileType = AnalyzedClass::CAKE_TYPE_CONTROLLER;
+
+    public $methods = [];
+
+    private $currentName = "";
+
+    public function __construct($filePath) {
+        $this->$filePath = $filePath;
+        if (preg_match('/\.ctp$/',$filePath)) {
+            $this->fileType = AnalyzedClass::CAKE_TYPE_VIEW;
+        }
+        $this->currentName = $filePath;
+    }
+
+    public function addMethod($name) {
+        $this->currentName = $name;
+        $this->methods[$this->currentName] = new AnalyzeMethod();
+    }
+
+    public function addMethodCall($target, $name, $args) {
+        $this->methods[$this->currentName]->methodCall[] = [$target."->".$name => $this->args($args)];
+    }
+    public function addStaticCall($target, $name, $args) {
+        $this->methods[$this->currentName]->staticCall[] = [$target."::".$name => $this->args($args)];
+    }
+    public function addFuncCall($name, $args) {
+        $this->methods[$this->currentName]->funcCall[] = [$name => $this->args($args)];
+    }
+
+    public function args($args) {
+        if (empty($args)) {
+            return [];
+        }
+
+        $ret = [];
+        foreach ($args as $arg) {
+            $ftr = new ClassAnalizer($this->filePath);
+            $ret[] = $ftr->expr($arg->value);
+            $tmp = $ftr->result;
+        }
+        return $ret;
+    }
+}
+
+class AnalyzeMethod{
+    public $methodCall = [];
+    public $staticCall = [];
+    public $funcCall = [];
+}
+
+/**
+ * 優先度
+ * 1:actionメソッド毎に表示するViewを取得(リダイレクトや別actionの呼び出し(requestAction)を考慮しない)
+ * 2:ViewからElementを取得
+ * 3:Elementを再帰的に取得する
+ * 4:action->View->Elementを芋づる式に取得
+ * 3:リダイレクトを考慮
+ * 4:requestActionを考慮
+ * 5:別アクションの直接呼出しを考慮
+ * 6:コンポーネントを考慮？？？
+ */
+class Extractor{
+    public $result;
+    public function __construct($result) {
+        $this->result = $result;
+    }
+
+    public function extractRender() {
+        foreach($this->result->methods as $parentName => $parentMethod) {
+            echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
+            $existRender = false;
+            foreach($parentMethod as $method) {
+                foreach($method as $seqNo => $callee) {
+                    $argstr = "";
+                    foreach($callee as $calleeName => $args) {
+                        foreach($args as $arg){
+                            $argstr.= (empty($argstr)?"":",").$arg;
+                        }
+                    }
+                    //echo "\t$seqNo: $calleeName->($argstr)\n";
+                    if (preg_match('/->render/',$calleeName)) {
+                        $existRender = true;
+                        echo "\trender:$argstr\n";
+                    }
+                }
+            }
+            echo "\trender:$parentName\n";
+            echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
+        }
+    }
+}
+
+
+class ClassAnalizer //extends NodeVisitorAbstract
 {
     private $nest = 0;
+    /** @var AnalyzedClass */
+    public $analyzedData;
+    private $filePath = "";
+
+    /**
+     * @@param string $filePath
+     */
+    public function __construct($filePath) {
+        $this->filePath = $filePath;
+        $this->analyzedData = new AnalyzedClass($filePath);
+    }
+
     private function tab($offset = 0) {
         return str_repeat(" ", ($this->nest + $offset) * 4);
     }
 
-    public function traverse(Array $stmts) {
-        foreach( $stmts as $stmt) {
+    public function traverseStmts($stmts)
+    {
+        if (empty($stmts)) {
+            return;
+        }
+
+        foreach ($stmts as $stmt) {
             $this->stmt($stmt);
         }
-    }
 
-    public function enterNode(Node $node)
-    {
-        // echo print_r($node);
-        // echo $node->expr->name;
-        $nodeType = substr(get_class($node),15) ?? "";
-        $exprType = isset($node->expr) ? substr(get_class($node->expr), 15) : "";
-        switch ($nodeType) {
-            case "Stmt\Class_":
-                echo $nodeType ."::" . $node->name->name . "\n";
-                $this->listStmts($node->stmts);
-                break;
-            // case "Expr\Array_":
-            //     echo "\t".$nodeType;
-            //     $this->listArrays($node->items);
-            //     echo "\n";
-            //     break;
-            // case "Stmt\Expression":
-            //     if (isset($node->expr->name)) {
-            //         echo "\t" . $nodeType . "::" . $node->expr->name . "\n";
-            //     }
-
-            //     $this->expr($node->expr);
-            case "Stmt\InlineHTML":
-                echo $nodeType ."::";
-                break;
-            case "Stmt\Echo_":
-                //$this->listExpr($node->exprs);
-                break;
-            case "Name":
-                foreach($node->parts as $part){
-                    echo "\n";
-                    echo $part;
-                }
-                break;
-            case "Arg":
-                if( $node->name ){
-                    echo "\n";
-                    echo $node->name;
-                }
-                $this->expr($node->value);
-                break;
-            case "Identifier":
-                echo "\n";
-                echo $node->name;
-                break;
-            default:
-                if (preg_match("/^(Expr|Scalar)\\.*/", $nodeType)) {
-                    $this->expr($node);
-                } else if(preg_match("/^Stmt\\.*/", $nodeType)) {
-                    $this->stmt($node);
-                } else {
-                    echo "break";
-                }
-                break;
-
-        }
+        //print_r($this->result);
     }
 
 
-    private function stmt($stmt){
+    public function stmt($stmt){
         echo "\n";
         $exprType = isset($stmt) ? substr(get_class($stmt), 15) : "";
         $this->nest++;
         switch ($exprType) {
             case "Stmt\Class_":
                 echo $exprType ."::" . $stmt->name->name . "\n";
-                $this->listStmts($stmt->stmts);
+                $this->result->className = $stmt->name->name;
+                $this->traverseStmts($stmt->stmts);
                 break;
 
             case "Stmt\Property":
@@ -118,8 +198,9 @@ class FileTraverser //extends NodeVisitorAbstract
                 break;
             case "Stmt\ClassMethod":
                 echo $this->tab().$exprType."::".$stmt->name->name;
+                $this->result->addMethod($stmt->name->name);
                 $this->listParams($stmt->params);
-                $this->listStmts($stmt->stmts);
+                $this->traverseStmts($stmt->stmts);
                 break;
             case "Stmt\Expression":
                 echo $this->tab().$exprType;
@@ -128,9 +209,9 @@ class FileTraverser //extends NodeVisitorAbstract
             case "Stmt\If_":
                 echo $this->tab().$exprType;
                 $this->expr($stmt->cond);
-                $this->listStmts($stmt->stmts);
+                $this->traverseStmts($stmt->stmts);
                 if( !empty($stmt->elseifs)){
-                    $this->listStmts($stmt->elseifs);
+                    $this->traverseStmts($stmt->elseifs);
                 }
                 if( !empty($stmt->else)){
                     $this->stmt($stmt->else);
@@ -138,27 +219,27 @@ class FileTraverser //extends NodeVisitorAbstract
                 break;
             case "Stmt\Else_":
                 echo $this->tab().$exprType;
-                $this->listStmts($stmt->stmts);
+                $this->traverseStmts($stmt->stmts);
                 break;
             case "Stmt\Switch_":
                 echo $this->tab().$exprType;
                 $this->expr($stmt->cond);
-                $this->listStmts($stmt->cases);
+                $this->traverseStmts($stmt->cases);
                 break;
             case "Stmt\Case_":
                 echo $this->tab().$exprType;
                 $this->expr($stmt->cond);
-                $this->listStmts($stmt->stmts);
+                $this->traverseStmts($stmt->stmts);
                 break;
             case "Stmt\For_":
                 echo $this->tab().$exprType;
                 echo "::";
-                $this->listExpr($stmt->init);
+                $this->traverseExprs($stmt->init);
                 echo "; ";
-                $this->listExpr($stmt->cond);
+                $this->traverseExprs($stmt->cond);
                 echo "; ";
-                $this->listExpr($stmt->loop);
-                $this->listStmts($stmt->stmts);
+                $this->traverseExprs($stmt->loop);
+                $this->traverseStmts($stmt->stmts);
                 break;
             case "Stmt\Foreach_":
                 echo $this->tab().$exprType;
@@ -168,7 +249,7 @@ class FileTraverser //extends NodeVisitorAbstract
                 $this->expr($stmt->keyVar);
                 echo " => ";
                 $this->expr($stmt->valueVar);
-                $this->listStmts($stmt->stmts);
+                $this->traverseStmts($stmt->stmts);
                 break;
             case "Stmt\Continue_":
             case "Stmt\Break_":
@@ -183,10 +264,10 @@ class FileTraverser //extends NodeVisitorAbstract
                 break;
             case "Stmt\TryCatch":
                 echo $this->tab().$exprType;
-                $this->listStmts($stmt->stmts);
-                $this->listStmts($stmt->catches);
+                $this->traverseStmts($stmt->stmts);
+                $this->traverseStmts($stmt->catches);
                 if($stmt->finally){
-                    $this->listStmts($stmt->finally);
+                    $this->traverseStmts($stmt->finally);
                 }
                 break;
             case "Stmt\Throw_":
@@ -199,11 +280,11 @@ class FileTraverser //extends NodeVisitorAbstract
                 break;
             case "Stmt\Echo_":
                 echo $this->tab().$exprType;
-                $this->listExpr($stmt->exprs);
+                $this->traverseExprs($stmt->exprs);
                 break;
             case "Stmt\Unset_":
                 echo $this->tab().$exprType;
-                $this->listExpr($stmt->vars);
+                $this->traverseExprs($stmt->vars);
                 break;
             case "Stmt\Nop":
                 echo $this->tab().$exprType;
@@ -218,7 +299,19 @@ class FileTraverser //extends NodeVisitorAbstract
         $this->nest--;
     }
 
-    private function expr($expr){
+    public function traverseExprs($exprs)
+    {
+        if (empty($exprs)) {
+            return;
+        }
+
+        foreach ($exprs as $expr) {
+            $this->expr($expr);
+        }
+    }
+
+    public function expr($expr){
+        $ret = "";
         if (is_null($expr)){
             return;
         }
@@ -228,21 +321,23 @@ class FileTraverser //extends NodeVisitorAbstract
         switch ($exprType) {
             case "Scalar\String_":
                 echo $this->tab().$exprType."::'".$expr->value."'";
+                $ret .= "'".$expr->value."'";
                 break;
             case "Scalar\LNumber":
                 echo $this->tab().$exprType."::".$expr->value;
+                $ret .= $expr->value;
                 break;
             case "Expr\MethodCall":
                 echo $this->tab().$exprType;
-                $this->methodCall($expr);
+                $ret .= $this->methodCall($expr);
                 break;
             case "Expr\StaticCall":
                 echo $this->tab().$exprType;
-                $this->methodCall($expr);
+                $ret .= $this->methodCall($expr);
                 break;
             case "Expr\FuncCall":
                 echo $this->tab().$exprType;
-                $this->methodCall($expr);
+                $ret .= $this->methodCall($expr);
                 break;
             case "Expr\Assign":
             case "Expr\AssignOp\Plus":
@@ -260,42 +355,47 @@ class FileTraverser //extends NodeVisitorAbstract
             case "Expr\ArrayItem":
                 echo $this->tab().$exprType;
                 if ($expr->key) {
-                    $this->expr($expr->key);
+                    $ret .= $this->expr($expr->key);
                     echo "=>";
+                    $ret .= "=>";
                 }
-                $this->expr($expr->value);
+                $ret .= $this->expr($expr->value);
                 break;
             case "Expr\Variable":
                 echo $this->tab().$exprType;
                 echo "::$".$expr->name;
+                $ret .= "$".$expr->name;
                 break;
             case "Expr\Array_":
                 echo $this->tab().$exprType;
-                $this->listArrays($expr->items);
+                $ret .= $this->listArrays($expr->items);
                 break;
             case "Expr\ConstFetch":
                 echo $this->tab().$exprType;
                 echo "::".$expr->name->parts[0];
+                $ret .= $expr->name->parts[0];
                 break;
             case "Expr\ArrayDimFetch":
                 echo $this->tab().$exprType;
-                $this->expr($expr->var);
+                $ret = $this->expr($expr->var);
                 if ($expr->dim){
                     if (substr(get_class($expr->dim),15) === "Scalar\String_") {
                         echo "[".$expr->dim->value."]";
+                        $ret .= "[".$expr->dim->value."]";
                     } else {
-                        $this->expr($expr->dim);
+                        $ret .= $this->expr($expr->dim);
                     }
                 }
+                break;
+            case "Expr\PropertyFetch":
+                echo $this->tab().$exprType."::";
+                echo "$".$expr->var->name."->".$expr->name->name;
+                $ret = "$".$expr->var->name."->".$expr->name->name;
                 break;
             case "Expr\New_":
                 echo $this->tab().$exprType."::";
                 echo $expr->class->parts[0];
                 $this->listArgs($expr->args);
-                break;
-            case "Expr\PropertyFetch":
-                echo $this->tab().$exprType."::";
-                echo "$".$expr->var->name."->".$expr->name->name;
                 break;
             case "Expr\BooleanNot":
                 echo $this->tab().$exprType."";
@@ -365,57 +465,63 @@ class FileTraverser //extends NodeVisitorAbstract
         }
         //echo "\n";
         $this->nest--;
+        return $ret;
     }
 
 
     private function methodCall($method) {
-
+        $ret="";
+        $target = "";
+        $funcNm = "";
         if (is_null($method)) {
             return;
         } else if(isset($method->var) ) {
-            $this->expr($method->var);
-            echo  "->".$method->name;
+            $target .= $this->expr($method->var);
+            $funcNm .= $method->name->name;
+            $ret .= $target."->".$funcNm;
+            echo  "->".$method->name->name;
         } else if (isset($method->name)) {
             echo  "::$".$method->name;
+            $target .= (isset($method->class)? $method->class->parts[0]:"");
+            $funcNm .= "".$method->name;
+            $ret .= $target."::".$funcNm;
         }
+
 
         if (isset($method->args)) {
-            $this->listArgs($method->args);
+            $ret .= "(".$this->listArgs($method->args).")";
         }
 
+        switch (substr(get_class($method),15)) {
+            case "Expr\MethodCall":
+                $this->result->addMethodCall($target, $funcNm, $method->args);
+                break;
+            case "Expr\StaticCall":
+                $this->result->addStaticCall($target, $funcNm, $method->args);
+                break;
+            case "Expr\FuncCall":
+                $this->result->addFuncCall($funcNm, $method->args);
+                break;
+        }
+        return $ret;
     }
 
-    private function listStmts($stmts)
-    {
-        if (empty($stmts)) {
-            return;
-        }
-
-        foreach ($stmts as $stmt) {
-            $this->stmt($stmt);
-        }
-    }
-
-    private function listExpr($exprs)
-    {
-        if (empty($exprs)) {
-            return;
-        }
-
-        foreach ($exprs as $expr) {
-            $this->expr($expr);
-        }
-    }
 
     private function listArrays($items)
     {
+        $ret = "";
         if (empty($items)) {
             return;
         }
 
+        $sep = "";
+        $ret .= "[";
         foreach ($items as $item) {
-            $this->expr($item);
+            $ret .= $sep.$this->expr($item);
+            $sep = ",";
         }
+        $ret .= "]";
+        return $ret;
     }
 
     private function listParams(array $params)
@@ -427,7 +533,6 @@ class FileTraverser //extends NodeVisitorAbstract
             $sep = "";
             foreach ($params as $param) {
                 $exprType = get_class($param->var) ?? "";
-                // $this->expr($param->var);
                 echo  "\n".$this->tab(1)."$".$param->var->name;
                 $sep = ", ";
             }
@@ -456,6 +561,7 @@ class FileTraverser //extends NodeVisitorAbstract
 
     private function listArgs(array $args)
     {
+        $ret = "";
         $this->nest++;
         echo "\n".$this->tab()."(";
 
@@ -463,14 +569,14 @@ class FileTraverser //extends NodeVisitorAbstract
             $sep = "";
             foreach ($args as $arg) {
                 $exprType = get_class($arg->value) ?? "";
-                $this->expr($arg->value);
-                //echo  $sep . $arg->var->name;
+                $ret .=$sep.$this->expr($arg->value);
                 $sep = ", ";
             }
         }
 
         echo "\n".$this->tab().")";
         $this->nest--;
+        return $ret;
     }
 
 }
@@ -490,12 +596,12 @@ $parser = (new ParserFactory)->create(
     $lexer
 );
 
-$traverser = new NodeTraverser;
-$traverser->addVisitor(new NodeVisitor\CloningVisitor());
+// $traverser = new NodeTraverser;
+// $traverser->addVisitor(new NodeVisitor\CloningVisitor());
 
 
 foreach ($configs as $config) {
-    $target = $dir . $config['target'];
+    $target =  $config['target'];
     $exclude = $config['exclude'] ?? [];
 
     echo "target:{$target}\n";
@@ -517,8 +623,8 @@ foreach ($configs as $config) {
         )
     );
     // .php なファイルだけすべて取得します
-    $files = new \RegexIterator($files, '/\.(php|ctp)$/');
-    //$files = new \RegexIterator($files, '/index\.(php|ctp)$/');
+    $files = new RegexIterator($files, '/\.(php|ctp)$/');
+    //$files = new RegexIterator($files, '/CoursesController\.(php|ctp)$/');
 
     // $config['visitors']に記載したVisitorを追加します
     // foreach ($config['visitors'] as $visitor) {
@@ -526,9 +632,15 @@ foreach ($configs as $config) {
     //     $traverser->addVisitor(new $visitor());
     // }
 
+
+
+    $analyaedArray = [];
+
     // 先程取得したファイルをぐるぐるします
     foreach ($files as $file) {
         try {
+            ob_start();
+
             echo "\n";
             echo $file . PHP_EOL;
 
@@ -538,8 +650,19 @@ foreach ($configs as $config) {
             // こちらもformatting-preserving-pretty-printingの書き方です
             $oldStmts = $parser->parse($code);
 
-            $traverser = new FileTraverser();
-            $traverser->traverse($oldStmts);
+            $analyzer = new ClassAnalizer($file->getPathName());
+            $analyzer->traverseStmts($oldStmts);
+            //print_r($traverser->result);
+
+            $analyaedArray[] = $analyzer->analyzedData;
+            $ext = new Extractor($analyzer->analyzedData);
+            ob_end_clean();
+
+            echo "\n\n";
+            echo $file->getPathName()."\n";
+            echo "===========================================================\n";
+            $ext->extractRender();
+
 
             // $oldTokens = $lexer->getTokens();
 
@@ -566,4 +689,6 @@ foreach ($configs as $config) {
             echo 'Parse Error: ', $e->getMessage();
         }
     }
+
+
 }
