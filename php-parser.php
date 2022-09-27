@@ -31,10 +31,10 @@ $configs = [
         //     'visitor\ListMethod',
         // ]
     ],
-    // [
-    //     'target' => 'app/View/Users',
-    //     'exclude' => ['.git', 'vendors', 'plugins'],
-    // ],
+    [
+        'target' => 'app/View',
+        'exclude' => ['.git', 'vendors', 'plugins'],
+    ],
 ];
 
     // Controller、Viewを全て解析して配列にセットする
@@ -52,7 +52,8 @@ class AnalyzedClass {
     public const CAKE_TYPE_MODEL = 3;
 
 
-    public $filePath = "";
+    public $filePath = ""; // appからの相対パス
+    public $fileName = "";
     public $className = "";
     public $fileType = AnalyzedClass::CAKE_TYPE_CONTROLLER;
 
@@ -61,7 +62,8 @@ class AnalyzedClass {
     private $currentName = "";
 
     public function __construct($filePath) {
-        $this->$filePath = $filePath;
+        $this->filePath = $filePath;// preg_replace("/^.*/(app/.*)", "$1", $filePath);
+        $this->fileName = basename($filePath);
         if (preg_match('/\.ctp$/',$filePath)) {
             $this->fileType = AnalyzedClass::CAKE_TYPE_VIEW;
         }
@@ -92,7 +94,7 @@ class AnalyzedClass {
         foreach ($args as $arg) {
             $ftr = new ClassAnalizer($this->filePath);
             $ret[] = $ftr->expr($arg->value);
-            $tmp = $ftr->result;
+            $tmp = $ftr->analyzedData;
         }
         return $ret;
     }
@@ -116,13 +118,13 @@ class AnalyzeMethod{
  * 6:コンポーネントを考慮？？？
  */
 class Extractor{
-    public $result;
+    public $analyzedData;
     public function __construct($result) {
-        $this->result = $result;
+        $this->analyzedData = $result;
     }
 
     public function extractRender() {
-        foreach($this->result->methods as $parentName => $parentMethod) {
+        foreach($this->analyzedData->methods as $parentName => $parentMethod) {
             echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
             $existRender = false;
             foreach($parentMethod as $method) {
@@ -152,13 +154,12 @@ class ClassAnalizer //extends NodeVisitorAbstract
     private $nest = 0;
     /** @var AnalyzedClass */
     public $analyzedData;
-    private $filePath = "";
+
 
     /**
      * @@param string $filePath
      */
     public function __construct($filePath) {
-        $this->filePath = $filePath;
         $this->analyzedData = new AnalyzedClass($filePath);
     }
 
@@ -175,7 +176,7 @@ class ClassAnalizer //extends NodeVisitorAbstract
         foreach ($stmts as $stmt) {
             $this->stmt($stmt);
         }
-
+        return $this->analyzedData;
         //print_r($this->result);
     }
 
@@ -187,7 +188,7 @@ class ClassAnalizer //extends NodeVisitorAbstract
         switch ($exprType) {
             case "Stmt\Class_":
                 echo $exprType ."::" . $stmt->name->name . "\n";
-                $this->result->className = $stmt->name->name;
+                $this->analyzedData->className = $stmt->name->name;
                 $this->traverseStmts($stmt->stmts);
                 break;
 
@@ -198,7 +199,7 @@ class ClassAnalizer //extends NodeVisitorAbstract
                 break;
             case "Stmt\ClassMethod":
                 echo $this->tab().$exprType."::".$stmt->name->name;
-                $this->result->addMethod($stmt->name->name);
+                $this->analyzedData->addMethod($stmt->name->name);
                 $this->listParams($stmt->params);
                 $this->traverseStmts($stmt->stmts);
                 break;
@@ -494,13 +495,13 @@ class ClassAnalizer //extends NodeVisitorAbstract
 
         switch (substr(get_class($method),15)) {
             case "Expr\MethodCall":
-                $this->result->addMethodCall($target, $funcNm, $method->args);
+                $this->analyzedData->addMethodCall($target, $funcNm, $method->args);
                 break;
             case "Expr\StaticCall":
-                $this->result->addStaticCall($target, $funcNm, $method->args);
+                $this->analyzedData->addStaticCall($target, $funcNm, $method->args);
                 break;
             case "Expr\FuncCall":
-                $this->result->addFuncCall($funcNm, $method->args);
+                $this->analyzedData->addFuncCall($funcNm, $method->args);
                 break;
         }
         return $ret;
@@ -598,7 +599,7 @@ $parser = (new ParserFactory)->create(
 
 // $traverser = new NodeTraverser;
 // $traverser->addVisitor(new NodeVisitor\CloningVisitor());
-
+$analyaedArray = [];
 
 foreach ($configs as $config) {
     $target =  $config['target'];
@@ -634,7 +635,7 @@ foreach ($configs as $config) {
 
 
 
-    $analyaedArray = [];
+
 
     // 先程取得したファイルをぐるぐるします
     foreach ($files as $file) {
@@ -651,10 +652,10 @@ foreach ($configs as $config) {
             $oldStmts = $parser->parse($code);
 
             $analyzer = new ClassAnalizer($file->getPathName());
-            $analyzer->traverseStmts($oldStmts);
+            $analyzedData = $analyzer->traverseStmts($oldStmts);
             //print_r($traverser->result);
 
-            $analyaedArray[] = $analyzer->analyzedData;
+            $analyaedArray += [$analyzedData->filePath => $analyzedData];
             $ext = new Extractor($analyzer->analyzedData);
             ob_end_clean();
 
@@ -689,6 +690,6 @@ foreach ($configs as $config) {
             echo 'Parse Error: ', $e->getMessage();
         }
     }
-
-
 }
+
+var_dump($analyaedArray);
