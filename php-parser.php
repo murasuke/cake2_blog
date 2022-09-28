@@ -118,32 +118,90 @@ class AnalyzeMethod{
  * 6:コンポーネントを考慮？？？
  */
 class Extractor{
-    public $analyzedData;
+    public $analyzedArray = [];
     public function __construct($result) {
-        $this->analyzedData = $result;
+        $this->analyzedArray = $result;
     }
 
-    public function extractRender() {
-        foreach($this->analyzedData->methods as $parentName => $parentMethod) {
-            echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
-            $existRender = false;
-            foreach($parentMethod as $method) {
-                foreach($method as $seqNo => $callee) {
-                    $argstr = "";
-                    foreach($callee as $calleeName => $args) {
-                        foreach($args as $arg){
-                            $argstr.= (empty($argstr)?"":",").$arg;
+    public function extractRender($constoller = "", $action = "") {
+        foreach( $this->analyzedArray as $analyzedData) {
+            foreach($analyzedData->methods as $parentName => $parentMethod) {
+                if ($constoller !== "" && $constoller !== $analyzedData->className) {
+                    continue;
+                }
+
+                if ($action !== "" && $action !==$parentName ) {
+                    continue;
+                }
+                echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
+                $existRender = false;
+                foreach($parentMethod as $method) {
+
+                    foreach($method as $seqNo => $callee) {
+                        $argstr = "";
+                        foreach($callee as $calleeName => $args) {
+                            foreach($args as $arg){
+                                $argstr.= (empty($argstr)?"":",").$arg;
+                            }
+                        }
+                        //echo "\t$seqNo: $calleeName->($argstr)\n";
+                        if (preg_match('/->render/',$calleeName)) {
+                            $existRender = true;
+                            echo "\trender:$argstr\n";
+                            $this->extractView($argstr);
                         }
                     }
-                    //echo "\t$seqNo: $calleeName->($argstr)\n";
-                    if (preg_match('/->render/',$calleeName)) {
-                        $existRender = true;
-                        echo "\trender:$argstr\n";
+                }
+                echo "\trender:$parentName\n";
+                $classPath = str_replace("app/Controller/","",  $analyzedData->filePath);
+                $classPath = str_replace("Controller.php","",  $classPath);
+                $this->extractView($classPath, $parentName);
+                echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
+            }
+        }
+
+
+    }
+
+    public function extractView($classPath, $view = "") {
+        foreach( $this->analyzedArray as $analyzedData) {
+            if ($analyzedData->fileType !== AnalyzedClass::CAKE_TYPE_VIEW) {
+                continue;
+            }
+
+            if (basename($analyzedData->fileName,".ctp") !== $view) {
+                continue;
+            }
+
+            if ($analyzedData->filePath === "app/View/$classPath/$view.ctp")
+            {
+                echo "";
+            }else{
+                echo "";
+            }
+
+            foreach($analyzedData->methods as $parentName => $parentMethod) {
+                echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
+                $existRender = false;
+                foreach($parentMethod as $method) {
+
+                    foreach($method as $seqNo => $callee) {
+                        $argstr = "";
+                        foreach($callee as $calleeName => $args) {
+                            foreach($args as $arg){
+                                $argstr.= (empty($argstr)?"":",").$arg;
+                            }
+                        }
+                        //echo "\t$seqNo: $calleeName->($argstr)\n";
+                        if (preg_match('/->element/',$calleeName)) {
+                            $existRender = true;
+                            echo "\telement:$argstr\n";
+                        }
                     }
                 }
+                echo "\trender:$parentName\n";
+                echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
             }
-            echo "\trender:$parentName\n";
-            echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
         }
     }
 }
@@ -653,16 +711,16 @@ foreach ($configs as $config) {
 
             $analyzer = new ClassAnalizer($file->getPathName());
             $analyzedData = $analyzer->traverseStmts($oldStmts);
-            //print_r($traverser->result);
+            // //print_r($traverser->result);
 
             $analyaedArray += [$analyzedData->filePath => $analyzedData];
-            $ext = new Extractor($analyzer->analyzedData);
+            // $ext = new Extractor($analyzer->analyzedData);
             ob_end_clean();
 
             echo "\n\n";
             echo $file->getPathName()."\n";
             echo "===========================================================\n";
-            $ext->extractRender();
+            // $ext->extractRender("view");
 
 
             // $oldTokens = $lexer->getTokens();
@@ -692,4 +750,6 @@ foreach ($configs as $config) {
     }
 }
 
-var_dump($analyaedArray);
+
+    $ext = new Extractor($analyaedArray);
+    $ext->extractRender("PostsController", "view");
