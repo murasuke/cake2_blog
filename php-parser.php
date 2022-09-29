@@ -163,7 +163,12 @@ class Extractor{
 
     }
 
-    public function extractView($classPath, $view = "") {
+    private function tab($depth, $offset = 0) {
+        return str_repeat(" ", ($depth + $offset) * 4);
+    }
+
+    public function extractView($classPath, $view ="", $depth = 0) {
+        $depth++;
         foreach( $this->analyzedArray as $analyzedData) {
             if ($analyzedData->fileType !== AnalyzedClass::CAKE_TYPE_VIEW) {
                 continue;
@@ -181,7 +186,7 @@ class Extractor{
             }
 
             foreach($analyzedData->methods as $parentName => $parentMethod) {
-                echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
+                // echo $this->tab($depth)."$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
                 $existRender = false;
                 foreach($parentMethod as $method) {
 
@@ -195,15 +200,20 @@ class Extractor{
                         //echo "\t$seqNo: $calleeName->($argstr)\n";
                         if (preg_match('/->element/',$calleeName)) {
                             $existRender = true;
-                            echo "\telement:$argstr\n";
+                            echo $this->tab($depth)."\t$view.ctp element:$argstr\n";
+                            $argstr = str_replace("'","",$argstr);
+                            $elemPath = "Elements";
+                            $this->extractView($elemPath, $argstr, $depth);
                         }
                     }
                 }
-                echo "\trender:$parentName\n";
-                echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
+                //echo "\trender:$parentName\n";
+                // echo $this->tab($depth)."$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
             }
         }
+        $depth--;
     }
+
 }
 
 
@@ -752,4 +762,4 @@ foreach ($configs as $config) {
 
 
     $ext = new Extractor($analyaedArray);
-    $ext->extractRender("PostsController", "view");
+    $ext->extractRender("", "");
