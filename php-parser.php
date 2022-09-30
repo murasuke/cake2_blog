@@ -123,8 +123,12 @@ class Extractor{
         $this->analyzedArray = $result;
     }
 
+    public $ctlActVwMap = [];
+
     public function extractRender($constoller = "", $action = "") {
         foreach( $this->analyzedArray as $analyzedData) {
+            $tmp = [];
+
             foreach($analyzedData->methods as $parentName => $parentMethod) {
                 if ($constoller !== "" && $constoller !== $analyzedData->className) {
                     continue;
@@ -133,7 +137,7 @@ class Extractor{
                 if ($action !== "" && $action !==$parentName ) {
                     continue;
                 }
-                echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
+                // echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
                 $existRender = false;
                 foreach($parentMethod as $method) {
 
@@ -142,25 +146,29 @@ class Extractor{
                         foreach($callee as $calleeName => $args) {
                             foreach($args as $arg){
                                 $argstr.= (empty($argstr)?"":",").$arg;
+                                break;
                             }
                         }
                         //echo "\t$seqNo: $calleeName->($argstr)\n";
                         if (preg_match('/->render/',$calleeName)) {
                             $existRender = true;
-                            echo "\trender:$argstr\n";
-                            $this->extractView($argstr);
+                            // echo "\trender:$argstr\n";
+
+                            // $this->ctlActVwMap[$analyzedData->className] += [$parentName => $this->extractView($argstr)];
+                            $tmp += [$parentName => $this->extractView($argstr)];
                         }
                     }
                 }
-                echo "\trender:$parentName\n";
+                // echo "\trender:\n";
+
                 $classPath = str_replace("app/Controller/","",  $analyzedData->filePath);
                 $classPath = str_replace("Controller.php","",  $classPath);
-                $this->extractView($classPath, $parentName);
-                echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
+                //  $this->ctlActVwMap[$analyzedData->className] += [$parentName => $this->extractView($classPath, $parentName)];
+                $tmp += [$parentName => $this->extractView($classPath, $parentName)];
+                // echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
             }
+            $this->ctlActVwMap[$analyzedData->className] = $tmp;
         }
-
-
     }
 
     private function tab($depth, $offset = 0) {
@@ -168,6 +176,7 @@ class Extractor{
     }
 
     public function extractView($classPath, $view ="", $depth = 0) {
+        $ctp = [];
         $depth++;
         foreach( $this->analyzedArray as $analyzedData) {
             if ($analyzedData->fileType !== AnalyzedClass::CAKE_TYPE_VIEW) {
@@ -184,6 +193,11 @@ class Extractor{
             }else{
                 echo "";
             }
+
+            if (!in_array("$classPath/$view.ctp", $ctp)) {
+                $ctp[] = "$classPath/$view.ctp";
+            }
+
 
             foreach($analyzedData->methods as $parentName => $parentMethod) {
                 // echo $this->tab($depth)."$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
@@ -202,8 +216,15 @@ class Extractor{
                             $existRender = true;
                             echo $this->tab($depth)."\t$view.ctp element:$argstr\n";
                             $argstr = str_replace("'","",$argstr);
+
                             $elemPath = "Elements";
-                            $this->extractView($elemPath, $argstr, $depth);
+
+                            $tmp = $this->extractView($elemPath, $argstr, $depth);
+                            foreach ($tmp as $tmpItem) {
+                                if (!in_array($tmpItem, $ctp)) {
+                                    $ctp[] = $tmpItem;
+                                }
+                            }
                         }
                     }
                 }
@@ -212,6 +233,7 @@ class Extractor{
             }
         }
         $depth--;
+        return $ctp;
     }
 
 }
@@ -763,3 +785,10 @@ foreach ($configs as $config) {
 
     $ext = new Extractor($analyaedArray);
     $ext->extractRender("", "");
+    echo "\n\n==================================================================\n";
+    foreach($ext->ctlActVwMap as $ctl => $act) {
+        foreach( $act as $actnm => $vws) {
+            foreach($vws as $vw)
+            echo "$ctl\t$actnm\t$vw\n";
+        }
+    }
