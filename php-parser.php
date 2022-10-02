@@ -118,57 +118,142 @@ class AnalyzeMethod{
  * 6:コンポーネントを考慮？？？
  */
 class Extractor{
-    public $analyzedArray = [];
+    public $fileArray = [];
     public function __construct($result) {
-        $this->analyzedArray = $result;
+        $this->fileArray = $result;
     }
 
-    public $ctlActVwMap = [];
-
-    public function extractRender($constoller = "", $action = "") {
-        foreach( $this->analyzedArray as $analyzedData) {
+    public function createActionViewMap($controller = "", $action = "") {
+        $ctlActVwMap = [];
+        foreach( $this->fileArray as $fileData) {
             $tmp = [];
-
-            foreach($analyzedData->methods as $parentName => $parentMethod) {
-                if ($constoller !== "" && $constoller !== $analyzedData->className) {
+            foreach($fileData->methods as $actionName => $calleeArray) {
+                if ($controller !== "" && $controller !== $fileData->className) {
                     continue;
                 }
 
-                if ($action !== "" && $action !==$parentName ) {
+                if ($action !== "" && $action !==$actionName ) {
                     continue;
                 }
-                // echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
-                $existRender = false;
-                foreach($parentMethod as $method) {
 
-                    foreach($method as $seqNo => $callee) {
-                        $argstr = "";
-                        foreach($callee as $calleeName => $args) {
-                            foreach($args as $arg){
-                                $argstr.= (empty($argstr)?"":",").$arg;
-                                break;
-                            }
-                        }
-                        //echo "\t$seqNo: $calleeName->($argstr)\n";
-                        if (preg_match('/->render/',$calleeName)) {
-                            $existRender = true;
-                            // echo "\trender:$argstr\n";
+                $tmp += $this->extractRender($fileData, $actionName, $calleeArray);
+            }
+            $ctlActVwMap[$fileData->className] = $tmp;
+        }
+        return $ctlActVwMap;
+    }
 
-                            // $this->ctlActVwMap[$analyzedData->className] += [$parentName => $this->extractView($argstr)];
-                            $tmp += [$parentName => $this->extractView($argstr)];
-                        }
+    private function findFileData($controller, $action) {
+        foreach( $this->fileArray as $fileData) {
+            if ($controller !== "" && $controller === $fileData->className) {
+                foreach($fileData->methods as $actionName => $calleeArray) {
+                    if ($action !== "" && $action === $actionName ) {
+                        return [$fileData, $calleeArray];
                     }
                 }
-                // echo "\trender:\n";
 
-                $classPath = str_replace("app/Controller/","",  $analyzedData->filePath);
-                $classPath = str_replace("Controller.php","",  $classPath);
-                //  $this->ctlActVwMap[$analyzedData->className] += [$parentName => $this->extractView($classPath, $parentName)];
-                $tmp += [$parentName => $this->extractView($classPath, $parentName)];
-                // echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
             }
-            $this->ctlActVwMap[$analyzedData->className] = $tmp;
         }
+        return null;
+    }
+
+    public function extractRender($fileData, $action, $calleeArray) {
+        $tmp = [];
+        // echo "$parentName() ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼\n";
+        $existRender = false;
+        foreach($calleeArray as $method) {
+
+            foreach($method as $seqNo => $callee) {
+                $argstr = "";
+                foreach($callee as $calleeName => $args) {
+                    foreach($args as $arg){
+                        $argstr.= (empty($argstr)?"":",").$arg;
+                        break;
+                    }
+                }
+                if (preg_match('/->render/',$calleeName)) {
+                    $tmp += [$action => $this->extractView($argstr)];
+                }
+
+                // redirect
+                if (preg_match('/->redirect/',$calleeName)) {
+                    $argstr = $callee[$calleeName];
+                    $ctl = $fileData->className;
+                    $act = "";
+
+                    $args = $this->parseArgs($argstr, $ctl);
+                    if (count($args) > 0) {
+                        $ctl = str_replace("'", "",$args[0]);
+                        $act = str_replace("'", "",$args[1]);
+                        $fileDt = $this->findFileData($ctl,$act);
+
+                        if (!empty($fileDt)) {
+                            $tmp += [$action => $this->extractRender($fileDt[0], $act, $fileDt[1])];
+                            echo "tet";
+                        }
+
+                    }
+                }
+            }
+        }
+        // echo "\trender:\n";
+
+        $classPath = str_replace("app/Controller/","",  $fileData->filePath);
+        $classPath = str_replace("Controller.php","",  $classPath);
+        //  $this->ctlActVwMap[$analyzedData->className] += [$parentName => $this->extractView($classPath, $parentName)];
+        $tmp += [$action => $this->extractView($classPath, $action)];
+        // echo "$parentName() ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲\n";
+
+        return $tmp;
+    }
+
+    /**
+     * $argsは文字列
+     * ・"['controller'=>'ctl','action'=>'act']"
+     * ・"index"
+     * ・
+     */
+    private function parseArgs($argstr, $currentCtlr) {
+        $ctl = $currentCtlr;
+        $act = "";
+        if (count($argstr) == 0 || $argstr[0][0] !== "[") {
+            return [];
+        }
+
+        $args = eval("return $argstr[0];");
+
+        // action名 or 相対パス or URL
+        // "/"で区切られていない場合は、action名(Controllerは同じ)
+        // "/"で区切られている場合は、splitして
+        // urlは無視(外部の可能性が高い)
+        if (is_string($args)) {
+            $ary = explode(" ", $argstr[0]);
+
+            if (preg_match('/^http/',$argstr[0])) {
+                // httpで始まるのはURLなので無視
+            } else if (count($ary) === 1) {
+                // actionのみ
+                $act = $ary[0];
+            } else {
+                // 相対パス
+                $act = $ary[count($ary)-1];
+                $ctl = implode("/", $ary);
+            }
+        } else if(is_array($args)) {
+            //　キーが[controller],[action]を探す
+            foreach($args as $key => $arg){
+                if ($key === "controller") {
+                    $ctl = $arg;
+                } else if ($key === "action") {
+                    $act = $arg;
+                }
+            }
+        }
+        echo "redirect";
+
+
+
+        return [$ctl, $act];
     }
 
     private function tab($depth, $offset = 0) {
@@ -178,7 +263,7 @@ class Extractor{
     public function extractView($classPath, $view ="", $depth = 0) {
         $ctp = [];
         $depth++;
-        foreach( $this->analyzedArray as $analyzedData) {
+        foreach( $this->fileArray as $analyzedData) {
             if ($analyzedData->fileType !== AnalyzedClass::CAKE_TYPE_VIEW) {
                 continue;
             }
@@ -784,11 +869,20 @@ foreach ($configs as $config) {
 
 
     $ext = new Extractor($analyaedArray);
-    $ext->extractRender("", "");
+    //$ctlActVwMap = $ext->createActionViewMap("PostsController", "delete");
+    $ctlActVwMap = $ext->createActionViewMap();
     echo "\n\n==================================================================\n";
-    foreach($ext->ctlActVwMap as $ctl => $act) {
+    foreach($ctlActVwMap as $ctl => $act) {
         foreach( $act as $actnm => $vws) {
-            foreach($vws as $vw)
-            echo "$ctl\t$actnm\t$vw\n";
+            foreach($vws as $key => $vw) {
+                if (is_array($vw)) {
+                    foreach($vw as $redirect) {
+                        echo "$ctl\t$actnm->$key\t$redirect\n";
+                    }
+                }else{
+                    echo "$ctl\t$actnm\t$vw\n";
+                }
+
+            }
         }
     }

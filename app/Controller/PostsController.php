@@ -8,6 +8,30 @@ class PostsController extends AppController
         $this->set('posts', $this->Post->find('all'));
     }
 
+    public function redirect1() {
+        return $this->redirect("index");
+    }
+
+    public function redirect2() {
+        return $this->redirect(
+            ['action' => 'index']
+        );
+    }
+
+    public function redirect3() {
+        return $this->redirect(
+            ['controller' => 'posts', 'action' => 'index']
+        );
+    }
+
+    public function redirect4() {
+        return $this->redirect('/posts/index');
+    }
+    public function redirect5() {
+        return $this->redirect(
+            ['action' => 'index'], 301
+        );
+    }
     public function view($id = null)
     {
         if (!$id) {
