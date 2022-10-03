@@ -216,18 +216,18 @@ class Extractor{
     private function parseArgs($argstr, $currentCtlr) {
         $ctl = $currentCtlr;
         $act = "";
-        if (count($argstr) == 0 || $argstr[0][0] !== "[") {
+
+        if (count($argstr) == 0 ) {
             return [];
         }
-
-        $args = eval("return $argstr[0];");
-
-        // action名 or 相対パス or URL
-        // "/"で区切られていない場合は、action名(Controllerは同じ)
-        // "/"で区切られている場合は、splitして
-        // urlは無視(外部の可能性が高い)
-        if (is_string($args)) {
-            $ary = explode(" ", $argstr[0]);
+        
+        if ($argstr[0][0] === "'" && explode("/", $argstr[0]) === 0 ) {
+            return [$ctl, str_replace("'","",$argstr[0])];
+        }
+        if ($argstr[0][0] === "'")
+        {
+            $argstr[0] =  str_replace("'","",$argstr[0]);
+            $ary = explode("/", $argstr[0]);
 
             if (preg_match('/^http/',$argstr[0])) {
                 // httpで始まるのはURLなので無視
@@ -237,13 +237,48 @@ class Extractor{
             } else {
                 // 相対パス
                 $act = $ary[count($ary)-1];
-                $ctl = implode("/", $ary);
+                $ctl = ucfirst($ary[count($ary)-2]."Controller");
+                if ($act === "") {
+                    return [];
+                }
             }
+            return [$ctl, $act]; 
+        }
+
+        if ($argstr[0][0] !== "[") {
+            return [];
+        }
+
+
+
+
+        $args = eval("return $argstr[0];");
+
+        // action名 or 相対パス or URL
+        // "/"で区切られていない場合は、action名(Controllerは同じ)
+        // "/"で区切られている場合は、splitして
+        // urlは無視(外部の可能性が高い)
+
+
+        if (is_string($args)) {
+
+            // $ary = explode("/", $argstr[0]);
+
+            // if (preg_match('/^http/',$argstr[0])) {
+            //     // httpで始まるのはURLなので無視
+            // } else if (count($ary) === 1) {
+            //     // actionのみ
+            //     $act = $ary[0];
+            // } else {
+            //     // 相対パス
+            //     $act = $ary[count($ary)-1];
+            //     $ctl = implode("/", $ary);
+            // }
         } else if(is_array($args)) {
             //　キーが[controller],[action]を探す
             foreach($args as $key => $arg){
                 if ($key === "controller") {
-                    $ctl = $arg;
+                    $ctl = ucfirst($arg."Controller");
                 } else if ($key === "action") {
                     $act = $arg;
                 }
