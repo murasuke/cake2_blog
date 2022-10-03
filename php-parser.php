@@ -126,6 +126,9 @@ class Extractor{
     public function createActionViewMap($controller = "", $action = "") {
         $ctlActVwMap = [];
         foreach( $this->fileArray as $fileData) {
+            if ($fileData->fileType !== AnalyzedClass::CAKE_TYPE_CONTROLLER) {
+                continue;
+            }
             $tmp = [];
             foreach($fileData->methods as $actionName => $calleeArray) {
                 if ($controller !== "" && $controller !== $fileData->className) {
@@ -189,7 +192,7 @@ class Extractor{
 
                         if (!empty($fileDt)) {
                             $tmp += [$action => $this->extractRender($fileDt[0], $act, $fileDt[1])];
-                            echo "tet";
+                            //echo "tet";
                         }
 
                     }
@@ -220,7 +223,7 @@ class Extractor{
         if (count($argstr) == 0 ) {
             return [];
         }
-        
+
         if ($argstr[0][0] === "'" && explode("/", $argstr[0]) === 0 ) {
             return [$ctl, str_replace("'","",$argstr[0])];
         }
@@ -242,7 +245,7 @@ class Extractor{
                     return [];
                 }
             }
-            return [$ctl, $act]; 
+            return [$ctl, $act];
         }
 
         if ($argstr[0][0] !== "[") {
@@ -252,7 +255,13 @@ class Extractor{
 
 
 
-        $args = eval("return $argstr[0];");
+        $args = "";
+        try {
+            $args = eval("return $argstr[0];");
+        } catch (\Throwable $t) {
+            echo "Exception:$argstr[0]";
+        }
+
 
         // action名 or 相対パス or URL
         // "/"で区切られていない場合は、action名(Controllerは同じ)
@@ -835,7 +844,7 @@ foreach ($configs as $config) {
     );
     // .php なファイルだけすべて取得します
     $files = new RegexIterator($files, '/\.(php|ctp)$/');
-    //$files = new RegexIterator($files, '/CoursesController\.(php|ctp)$/');
+    //$files = new RegexIterator($files, '/(SettingsController\.php)|(admin_index\.ctp)$/');
 
     // $config['visitors']に記載したVisitorを追加します
     // foreach ($config['visitors'] as $visitor) {
